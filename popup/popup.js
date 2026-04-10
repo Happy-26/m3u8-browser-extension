@@ -168,14 +168,16 @@
             <span>&#128190; ${formatBytes(totalSize)}</span>
           </div>
         </div>
-        <div class="form-group mt-12">
-          <label class="form-label">分辨率</label>
-          <div class="form-hint">${item.resolution || '未检测到'}</div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">分片数量</label>
-          <div class="form-hint">${item.totalSegments} 个</div>
-        </div>
+        <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">分辨率</label>
+              <div class="form-hint">${item.resolution || '未检测到'}</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">分片数量</label>
+              <div class="form-hint">${item.totalSegments} 个</div>
+            </div>
+          </div>
         <div class="form-group">
           <label class="form-label">M3U8 链接</label>
           <div class="form-hint text-mono truncate" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>

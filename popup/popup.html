@@ -9,10 +9,12 @@
     /* Popup 专用样式 */
     .popup {
       width: 360px;
-      min-height: 400px;
-      max-height: 600px;
+      min-height: 500px;
+      max-height: 800px;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
+      box-sizing: border-box;
     }
 
     .popup-header {
@@ -50,6 +52,21 @@
     .popup-body {
       flex: 1;
       overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-gutter: stable;
+    }
+
+    .popup-body::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .popup-body::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .popup-body::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
     }
 
     .popup-footer {
@@ -129,6 +146,30 @@
     }
 
     .url-item:hover .url-item-actions { opacity: 1; }
+
+    .url-item.selected {
+      background: color-mix(in srgb, var(--primary) 8%, transparent);
+    }
+
+    .url-item-checkbox {
+      position: absolute;
+      left: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 1;
+    }
+
+    .url-item-checkbox input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: var(--primary);
+    }
+
+    .url-item {
+      position: relative;
+      padding-left: 32px;
+    }
 
     /* 快捷操作区 */
     .quick-actions {
@@ -237,7 +278,11 @@
     .modal {
       background: var(--bg-card);
       border-radius: var(--radius);
-      width: 340px;
+      width: 320px;
+      max-height: 480px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
       box-shadow: var(--shadow-lg);
       transform: scale(0.95);
       transition: transform 0.2s;
@@ -246,13 +291,18 @@
     .modal-overlay.active .modal { transform: scale(1); }
 
     .modal-header {
-      padding: 16px;
+      padding: 14px 16px;
       border-bottom: 1px solid var(--border);
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 600;
+      flex-shrink: 0;
     }
 
-    .modal-body { padding: 16px; }
+    .modal-body {
+      padding: 16px;
+      overflow-y: auto;
+      flex: 1;
+    }
 
     .modal-footer {
       padding: 12px 16px;
@@ -260,6 +310,7 @@
       display: flex;
       gap: 8px;
       justify-content: flex-end;
+      flex-shrink: 0;
     }
 
     /* 视频信息卡 */
