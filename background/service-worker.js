@@ -48,6 +48,12 @@ async function handleMessage(message, sender) {
     case 'CLEAR_CAPTURED_URLS':
       return await StorageUtils.clearCapturedUrls();
 
+    case 'DELETE_TASK':
+      return await deleteTask(message.payload.taskId);
+
+    case 'CLEAR_COMPLETED_TASKS':
+      return await clearCompletedTasks();
+
     case 'GET_SETTINGS':
       return await StorageUtils.getSettings();
 
@@ -162,8 +168,8 @@ async function startDownload(payload) {
 }
 
 async function runDownload(task, settings) {
-  // 按并发度分批下载
-  const queue = [...task.segments];
+  // 按并发度分批下载（跳过已下载的分片，支持断点续传）
+  const queue = task.segments.filter(seg => !(seg.seq in task.segmentData));
   const results = [];
 
   task.abortController = new AbortController();
@@ -216,12 +222,14 @@ async function runDownload(task, settings) {
           task.speed = Math.round(task.downloadedBytes / elapsed);
         }
 
+        // 同时持久化已下载的分片数据（支持断点续传恢复）
         await StorageUtils.updateTask(task.id, {
           downloadedSegments: task.downloadedSegments,
           downloadedBytes: task.downloadedBytes,
           progress: task.progress,
           speed: task.speed,
-          status: 'running'
+          status: 'running',
+          segmentData: task.segmentData
         });
       } else {
         task.retryCount++;
@@ -306,7 +314,8 @@ function pauseDownload(taskId) {
     task.abortController.abort();
   }
   task.status = 'paused';
-  StorageUtils.updateTask(taskId, { status: 'paused' });
+  // 暂停时也要持久化 segmentData，确保下次恢复时数据不丢失
+  StorageUtils.updateTask(taskId, { status: 'paused', segmentData: task.segmentData });
   return { success: true };
 }
 
@@ -317,6 +326,11 @@ async function resumeDownload(taskId) {
 
   const settings = await StorageUtils.getSettings();
   task.status = 'running';
+  task.segmentData = task.segmentData || {};
+  task.downloadedSegments = task.downloadedSegments || 0;
+  task.downloadedBytes = task.downloadedBytes || 0;
+  task.abortController = null;
+  activeTasks.set(task.id, task);
   await runDownload(task, settings);
   return { success: true };
 }
@@ -331,6 +345,17 @@ async function getCapturedUrls() {
 
 async function deleteCapturedUrl(url) {
   await StorageUtils.deleteCapturedUrl(url);
+  return { success: true };
+}
+
+async function deleteTask(taskId) {
+  activeTasks.delete(taskId);
+  await StorageUtils.deleteTask(taskId);
+  return { success: true };
+}
+
+async function clearCompletedTasks() {
+  await StorageUtils.clearCompletedTasks();
   return { success: true };
 }
 
