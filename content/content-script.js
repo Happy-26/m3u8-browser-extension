@@ -280,85 +280,16 @@
         scanDOM();
         sendResponse({ success: true });
       } else if (message.type === 'PARSE_M3U8') {
-        // 解析 M3U8（需要调用 M3U8Parser）
-        handleParseM3U8(message.payload.url).then(sendResponse);
-        return true; // 异步响应
+        // 转发到 service worker 处理，content script 不应执行合并等重量级操作
+        chrome.runtime.sendMessage(message, (r) => sendResponse(r || {}));
+        return true;
       } else if (message.type === 'START_DOWNLOAD') {
-        handleStartDownload(message.payload).then(sendResponse);
-        return true; // 异步响应
+        // 转发到 service worker 处理
+        chrome.runtime.sendMessage(message, (r) => sendResponse(r || {}));
+        return true;
       }
-      
+
       return false;
-    });
-  }
-
-  // 处理 M3U8 解析
-  async function handleParseM3U8(url) {
-    try {
-      // 加载 M3U8Parser
-      const parser = await importChromeScript('../lib/m3u8-parser.js');
-      const result = await parser.parseFromUrl(url);
-      
-      // 更新 storage
-      await updateCapturedUrl(url, {
-        status: 'parsed',
-        segments: result.segments,
-        totalSegments: result.segments.length,
-        totalDuration: result.totalDuration,
-        resolution: result.resolution,
-        bandwidth: result.bandwidth,
-        encryption: result.encryption
-      });
-      
-      return { success: true, data: result };
-    } catch (err) {
-      console.error('[M3U8 Catcher] Parse error:', err);
-      return { success: false, error: err.message };
-    }
-  }
-
-  // 处理下载开始
-  async function handleStartDownload(payload) {
-    const { task, settings } = payload;
-    try {
-      console.log('[M3U8 Catcher] Starting download:', task.name);
-      
-      // 动态加载 merger
-      const merger = await importChromeScript('../lib/merger.js');
-      
-      // 开始合并下载
-      await merger.mergeAndDownload(task.segments, {
-        fileName: task.name,
-        encryption: task.encryption,
-        largeFileThreshold: settings.largeFileThreshold || 200 * 1024 * 1024,
-        maxConcurrency: settings.maxConcurrency || 6
-      });
-      
-      // 更新状态
-      await updateTask(task.id, { status: 'completed', progress: 100 });
-      await updateCapturedUrl(task.url, { status: 'completed' });
-      
-      return { success: true };
-    } catch (err) {
-      console.error('[M3U8 Catcher] Download error:', err);
-      await updateTask(task.id, { status: 'error', error: err.message });
-      return { success: false, error: err.message };
-    }
-  }
-
-  // 动态加载脚本
-  function importChromeScript(path) {
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = chrome.runtime.getURL(path);
-      script.onload = () => {
-        // 获取全局对象
-        const name = path.split('/').pop().replace('.js', '');
-        const obj = window[name] || window[name.replace(/-/g, '')];
-        resolve(obj);
-      };
-      script.onerror = reject;
-      document.head.appendChild(script);
     });
   }
 
