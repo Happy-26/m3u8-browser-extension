@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "M3U8 Stream Catcher",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "自动捕获网页中的 M3U8 链接，一键解析并下载视频流",
   "permissions": [
     "activeTab",
