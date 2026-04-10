@@ -621,5 +621,13 @@
     init();
   }
 
+  // 监听 service worker 的统计刷新广播
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === 'STATS_REFRESH') {
+      loadCapturedUrls();
+    }
+    return false;
+  });
+
   console.log('[Popup] Script loaded, waiting for init...');
 })();

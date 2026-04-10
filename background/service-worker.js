@@ -10,6 +10,49 @@ importScripts('../lib/m3u8-parser.js', '../lib/crypto-utils.js', '../lib/storage
 // 内存中的任务队列（Service Worker 生命周期有限，需持久化存储）
 const activeTasks = new Map();
 
+// ========== 并发任务队列管理 ==========
+const TaskQueue = {
+  _runningCount: 0,
+  _maxConcurrent: 2, // 默认值，会在 startDownload 时用 settings 覆盖
+  _queue: [],         // 待执行的任务队列
+
+  /**
+   * 入队，尝试立即执行或排队
+   * @param {Object} task - 任务对象
+   * @param {Object} settings - 用户设置（含 maxConcurrentTasks）
+   */
+  enqueue(task, settings) {
+    this._maxConcurrent = settings.maxConcurrentTasks || 2;
+    this._queue.push(task);
+    this._dispatch();
+  },
+
+  _dispatch() {
+    while (this._runningCount < this._maxConcurrent && this._queue.length > 0) {
+      const next = this._queue.shift();
+      this._runTask(next);
+    }
+  },
+
+  async _runTask(task) {
+    this._runningCount++;
+    // runDownload 会改变 task.status，完成/失败/暂停时回调 _onTaskDone
+    task._onDone = () => {
+      this._runningCount--;
+      this._dispatch();
+    };
+    // 注入一个标记让 runDownload 知道这是队列模式
+    task._queueManaged = true;
+    await runDownload(task, {});
+  },
+
+  // 任务完成时（由 onTaskComplete/onTaskError/pauseDownload 调用）通知队列继续
+  notifyDone() {
+    this._runningCount = Math.max(0, this._runningCount - 1);
+    this._dispatch();
+  }
+};
+
 // ========== 消息监听 ==========
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -158,20 +201,27 @@ async function parseMasterPlaylist(url) {
 async function startDownload(payload) {
   const { url, segments, encryption, fileName, totalBytes, settings } = payload;
 
-  const task = SegmentDownloader.createTask({
+  const task = {
+    id: payload.taskId || Date.now().toString(),
     url,
     name: fileName,
     segments,
     encryption,
+    totalBytes: totalBytes || 0,
+    segmentData: {},
+    totalSegments: segments.length,
+    downloadedSegments: 0,
+    downloadedBytes: 0,
+    progress: 0,
+    speed: 0,
+    retryCount: 0,
+    _segmentRetries: {},
     maxConcurrency: settings.maxConcurrency,
     maxRetries: settings.maxRetries,
-    onProgress: (t, seg, size) => onTaskProgress(t.id, t),
-    onComplete: (t, results) => onTaskComplete(t.id, t, results),
-    onError: (t, err) => onTaskError(t.id, t, err)
-  });
-
-  task.totalBytes = totalBytes || 0;
-  task.segmentData = {};
+    status: 'queued',
+    startTime: null,
+    abortController: null
+  };
 
   // 保存到存储
   await StorageUtils.addTask(task);
@@ -180,19 +230,24 @@ async function startDownload(payload) {
   // 更新捕获 URL 状态
   await StorageUtils.updateCapturedUrl(url, { status: 'downloading', taskId: task.id });
 
-  // 启动下载
-  await runDownload(task, settings);
+  // 进入并发任务队列（由队列管理器决定何时启动）
+  TaskQueue.enqueue(task, settings);
 
   return { success: true, taskId: task.id };
 }
 
 async function runDownload(task, settings) {
+  // 从 task 自身获取并发配置（startDownload 填充的）
+  const maxConcurrency = task.maxConcurrency || (settings?.maxConcurrency) || 6;
+
   // 按并发度分批下载（跳过已下载的分片，支持断点续传）
   const queue = task.segments.filter(seg => !(seg.seq in task.segmentData));
   const results = [];
 
   task.abortController = new AbortController();
   const signal = task.abortController.signal;
+  task.startTime = task.startTime || Date.now();
+  task.status = 'running';
 
   while (queue.length > 0) {
     if (task.status === 'paused' || signal.aborted) {
@@ -201,7 +256,7 @@ async function runDownload(task, settings) {
 
     // 收集当前批次
     const batch = [];
-    while (batch.length < task.maxConcurrency && queue.length > 0) {
+    while (batch.length < maxConcurrency && queue.length > 0) {
       batch.push(queue.shift());
     }
 
@@ -273,6 +328,11 @@ async function runDownload(task, settings) {
     task.progress = 100;
     await onTaskComplete(task.id, task, results);
   }
+
+  // 如果是队列管理模式，通知队列可以启动下一个任务
+  if (task._queueManaged) {
+    TaskQueue.notifyDone();
+  }
 }
 
 async function onTaskProgress(taskId, task) {
@@ -285,6 +345,9 @@ async function onTaskProgress(taskId, task) {
 
   // 广播到相关标签页
   broadcastToTabs({ type: 'TASK_UPDATE', payload: task });
+
+  // 触发 popup 刷新统计栏（通知其重新加载数据）
+  broadcastToTabs({ type: 'STATS_REFRESH' });
 }
 
 async function onTaskComplete(taskId, task, results) {
@@ -301,7 +364,6 @@ async function onTaskComplete(taskId, task, results) {
   // 更新捕获 URL 状态
   await StorageUtils.updateCapturedUrl(task.url, { status: 'completed' });
 
-  // 执行合并（在标签页上下文中执行，service worker 无法触发下载）
   // 通知 popup/download-manager 执行合并
   broadcastToTabs({ type: 'TASK_COMPLETE', payload: { taskId, task } });
 
@@ -323,6 +385,11 @@ async function onTaskComplete(taskId, task, results) {
       // 标签页可能没有加载 content script
     }
   }
+
+  // 队列模式下通知队列可以启动下一个任务
+  if (task._queueManaged) {
+    TaskQueue.notifyDone();
+  }
 }
 
 async function onTaskError(taskId, task, err) {
@@ -336,6 +403,11 @@ async function onTaskError(taskId, task, err) {
 
   showNotification('下载失败', task.name, err.message);
   broadcastToTabs({ type: 'TASK_ERROR', payload: { taskId, error: err.message } });
+
+  // 队列模式下通知队列可以启动下一个任务
+  if (task._queueManaged) {
+    TaskQueue.notifyDone();
+  }
 }
 
 function pauseDownload(taskId) {
@@ -346,6 +418,8 @@ function pauseDownload(taskId) {
   task.status = 'paused';
   // 暂停时也要持久化 segmentData，确保下次恢复时数据不丢失
   StorageUtils.updateTask(taskId, { status: 'paused', segmentData: task.segmentData });
+  // 队列模式下暂停也需要释放槽位
+  if (task._queueManaged) TaskQueue.notifyDone();
   return { success: true };
 }
 
@@ -360,6 +434,9 @@ async function resumeDownload(taskId) {
   task.downloadedSegments = task.downloadedSegments || 0;
   task.downloadedBytes = task.downloadedBytes || 0;
   task.abortController = null;
+  task.startTime = task.startTime || Date.now();
+  task.maxConcurrency = task.maxConcurrency || settings.maxConcurrency;
+  task.maxRetries = task.maxRetries || settings.maxRetries;
   activeTasks.set(task.id, task);
   await runDownload(task, settings);
   return { success: true };
