@@ -207,8 +207,10 @@ async function runDownload(task, settings) {
       })
     );
 
-    // 处理批次结果
-    for (const result of batchResults) {
+    // 处理批次结果（用 Promise.allSettled 的 index 找对应分片）
+    for (let i = 0; i < batchResults.length; i++) {
+      const result = batchResults[i];
+      const seg = batch[i];
       if (result.status === 'fulfilled') {
         task.segmentData[result.value.seq] = result.value.data;
         results.push(result.value);
@@ -232,8 +234,17 @@ async function runDownload(task, settings) {
           segmentData: task.segmentData
         });
       } else {
-        task.retryCount++;
-        console.warn('[ServiceWorker] Segment download failed:', result.reason);
+        // 将失败的分片重新加入队列末尾重试（最多重试 maxRetries 次）
+        const segRetryCount = (task._segmentRetries || {})[seg.seq] || 0;
+        if (segRetryCount < task.maxRetries) {
+          task._segmentRetries = task._segmentRetries || {};
+          task._segmentRetries[seg.seq] = segRetryCount + 1;
+          queue.push(seg);
+          console.warn(`[ServiceWorker] Requeue segment ${seg.seq} (attempt ${segRetryCount + 1}/${task.maxRetries}):`, result.reason?.message || result.reason);
+        } else {
+          task.retryCount++;
+          console.error('[ServiceWorker] Segment permanently failed after', task.maxRetries, 'attempts:', result.reason);
+        }
       }
     }
   }
