@@ -503,32 +503,37 @@
           status: 'pending',
           createdAt: Date.now()
         };
-        await StorageUtils.addTask(task);
-        await StorageUtils.updateCapturedUrl(item.url, { status: 'downloading', taskId });
-        showToast('开始下载', getFileName(item.url), 'success');
 
-        const tabs = await chrome.tabs.query({});
-        for (const tab of tabs) {
-          try {
-            await chrome.tabs.sendMessage(tab.id, {
-              type: 'START_DOWNLOAD',
-              payload: { taskId, task, settings }
-            });
-          } catch (e) {}
+        // 【关键修复】直接向 service worker 发送消息，而非通过所有标签页转发
+        // service worker 接收 START_DOWNLOAD 后：
+        //   1. 保存任务到 StorageUtils + activeTasks
+        //   2. 进入 TaskQueue 排队下载
+        //   3. 每个批次更新 StorageUtils（进度同步到 UI）
+        const response = await sendMessage({
+          type: 'START_DOWNLOAD',
+          payload: {
+            taskId,
+            url: item.url,
+            segments: item.segments,
+            encryption: item.encryption,
+            fileName: getFileName(item.url),
+            totalBytes: item.totalBytes || 0,
+            settings
+          }
+        });
+
+        if (response && response.success) {
+          await StorageUtils.updateCapturedUrl(item.url, { status: 'downloading', taskId: response.taskId });
+          showToast('开始下载', getFileName(item.url), 'success');
+        } else {
+          showToast('下载失败', response?.error || 'service worker 无响应', 'error');
         }
 
         await loadCapturedUrls();
       } else {
         showToast('正在解析', item.url, 'info');
-        const tabs = await chrome.tabs.query({});
-        for (const tab of tabs) {
-          try {
-            await chrome.tabs.sendMessage(tab.id, {
-              type: 'PARSE_M3U8',
-              payload: { url: item.url }
-            });
-          } catch (e) {}
-        }
+        // 解析消息也直接发给 service worker
+        await sendMessage({ type: 'PARSE_M3U8', payload: { url: item.url } });
         await loadCapturedUrls();
       }
     } catch (err) {

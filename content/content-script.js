@@ -287,10 +287,92 @@
         // 转发到 service worker 处理
         chrome.runtime.sendMessage(message, (r) => sendResponse(r || {}));
         return true;
+      } else if (message.type === 'MERGE_AND_DOWNLOAD') {
+        // 分片已下载并存入 IndexedDB（service worker 下载时持久化）
+        // MV3 content script 无法直接 importScripts，改为动态加载 lib 模块
+        const { taskId, task, settings } = message.payload || {};
+
+        async function doMerge() {
+          try {
+            // 按依赖顺序加载：crypto-utils → idb-utils → merger
+            await Promise.all([
+              loadScript(chrome.runtime.getURL('lib/crypto-utils.js')),
+              loadScript(chrome.runtime.getURL('lib/idb-utils.js')),
+              loadScript(chrome.runtime.getURL('lib/merger.js'))
+            ]);
+
+            if (typeof IDBStorage === 'undefined' || typeof Merger === 'undefined') {
+              throw new Error('Failed to load merger modules: IDBStorage=' + typeof IDBStorage + ', Merger=' + typeof Merger);
+            }
+
+            // 从 IndexedDB 恢复分片数据（chrome.storage.local 不再存 ArrayBuffer）
+            const segmentData = await IDBStorage.getSegments(taskId);
+            if (!segmentData || Object.keys(segmentData).length === 0) {
+              throw new Error('No segment data in IDB for task: ' + taskId);
+            }
+
+            // 构造 segmentResults（{ seq: ArrayBuffer }）供 merger 使用
+            const segmentResults = {};
+            for (const [seq, data] of Object.entries(segmentData)) {
+              segmentResults[parseInt(seq)] = data;
+            }
+
+            // 合并进度回调：通知 service worker 更新进度
+            const onMergeProgress = (info) => {
+              chrome.runtime.sendMessage({
+                type: 'MERGE_PROGRESS',
+                payload: { taskId, ...info }
+              }).catch(() => {});
+            };
+
+            await Merger.mergeAndStreamDownload(
+              task.segments,
+              segmentResults,
+              task.encryption,
+              task.name,
+              onMergeProgress,
+              settings
+            );
+
+            // 合并完成后清理 IndexedDB（节省空间）
+            await IDBStorage.deleteSegments(taskId);
+
+            // 通知 service worker 合并完成
+            chrome.runtime.sendMessage({
+              type: 'MERGE_COMPLETE',
+              payload: { taskId }
+            }).catch(() => {});
+
+          } catch (err) {
+            console.error('[M3U8 Catcher] Merge error:', err);
+            // 通知 service worker 合并失败
+            chrome.runtime.sendMessage({
+              type: 'MERGE_ERROR',
+              payload: { taskId, error: err.message }
+            }).catch(() => {});
+          }
+        }
+
+        doMerge();
+        return;
       }
 
       return false;
     });
+
+    /**
+     * 动态加载 JS 脚本（返回 Promise，重复加载自动跳过）
+     */
+    function loadScript(src) {
+      return new Promise((resolve) => {
+        if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = () => resolve();
+        s.onerror = () => { console.error('[M3U8 Catcher] Failed to load:', src); resolve(); };
+        document.head.appendChild(s);
+      });
+    }
   }
 
   // Storage 操作

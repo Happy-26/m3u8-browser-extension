@@ -4,7 +4,7 @@
  */
 
 // 导入核心模块（通过 importScripts）
-importScripts('../lib/m3u8-parser.js', '../lib/crypto-utils.js', '../lib/storage-utils.js');
+importScripts('../lib/m3u8-parser.js', '../lib/crypto-utils.js', '../lib/storage-utils.js', '../lib/idb-utils.js');
 // segment-downloader.js 未被 service-worker 直接调用（service-worker 自己实现了下载逻辑）
 
 // 内存中的任务队列（Service Worker 生命周期有限，需持久化存储）
@@ -36,12 +36,7 @@ const TaskQueue = {
 
   async _runTask(task) {
     this._runningCount++;
-    // runDownload 会改变 task.status，完成/失败/暂停时回调 _onTaskDone
-    task._onDone = () => {
-      this._runningCount--;
-      this._dispatch();
-    };
-    // 注入一个标记让 runDownload 知道这是队列模式
+    // 标记为队列管理模式：runDownload 完成后 / 暂停时 / 失败时调用 TaskQueue.notifyDone()
     task._queueManaged = true;
     await runDownload(task, {});
   },
@@ -103,6 +98,15 @@ async function handleMessage(message, sender) {
 
     case 'CLEAR_COMPLETED_TASKS':
       return await clearCompletedTasks();
+
+    case 'MERGE_PROGRESS':
+      return await onMergeProgress(message.payload);
+
+    case 'MERGE_COMPLETE':
+      return await onMergeComplete(message.payload);
+
+    case 'MERGE_ERROR':
+      return await onMergeError(message.payload);
 
     case 'GET_SETTINGS':
       return await StorageUtils.getSettings();
@@ -241,7 +245,7 @@ async function runDownload(task, settings) {
   const maxConcurrency = task.maxConcurrency || (settings?.maxConcurrency) || 6;
 
   // 按并发度分批下载（跳过已下载的分片，支持断点续传）
-  const queue = task.segments.filter(seg => !(seg.seq in task.segmentData));
+  const pendingSegs = task.segments.filter(seg => !(seg.seq in task.segmentData));
   const results = [];
 
   task.abortController = new AbortController();
@@ -249,15 +253,20 @@ async function runDownload(task, settings) {
   task.startTime = task.startTime || Date.now();
   task.status = 'running';
 
-  while (queue.length > 0) {
+  // ========== 批量写入优化：每 BATCH_WRITE_SIZE 个分片写一次 IDB ==========
+  const BATCH_WRITE_SIZE = 20;
+  let pendingWrites = {}; // { seq: ArrayBuffer }
+  let writeCounter = 0;
+
+  while (pendingSegs.length > 0) {
     if (task.status === 'paused' || signal.aborted) {
       break;
     }
 
     // 收集当前批次
     const batch = [];
-    while (batch.length < maxConcurrency && queue.length > 0) {
-      batch.push(queue.shift());
+    while (batch.length < maxConcurrency && pendingSegs.length > 0) {
+      batch.push(pendingSegs.shift());
     }
 
     // 并发下载当前批次
@@ -281,13 +290,14 @@ async function runDownload(task, settings) {
       })
     );
 
-    // 处理批次结果（用 Promise.allSettled 的 index 找对应分片）
+    // 处理批次结果
     for (let i = 0; i < batchResults.length; i++) {
       const result = batchResults[i];
       const seg = batch[i];
       if (result.status === 'fulfilled') {
         task.segmentData[result.value.seq] = result.value.data;
         results.push(result.value);
+        pendingWrites[result.value.seq] = result.value.data;
         task.downloadedSegments++;
         task.downloadedBytes += result.value.size;
         task.progress = Math.round((task.downloadedSegments / task.totalSegments) * 100);
@@ -298,22 +308,20 @@ async function runDownload(task, settings) {
           task.speed = Math.round(task.downloadedBytes / elapsed);
         }
 
-        // 同时持久化已下载的分片数据（支持断点续传恢复）
-        await StorageUtils.updateTask(task.id, {
-          downloadedSegments: task.downloadedSegments,
-          downloadedBytes: task.downloadedBytes,
-          progress: task.progress,
-          speed: task.speed,
-          status: 'running',
-          segmentData: task.segmentData
-        });
+        // 批量写入 IndexedDB（每 BATCH_WRITE_SIZE 个分片写一次，减少 IDB 写入次数）
+        writeCounter++;
+        if (writeCounter >= BATCH_WRITE_SIZE || pendingSegs.length === 0) {
+          await IDBStorage.putSegments(task.id, pendingWrites);
+          pendingWrites = {};
+          writeCounter = 0;
+        }
       } else {
         // 将失败的分片重新加入队列末尾重试（最多重试 maxRetries 次）
         const segRetryCount = (task._segmentRetries || {})[seg.seq] || 0;
         if (segRetryCount < task.maxRetries) {
           task._segmentRetries = task._segmentRetries || {};
           task._segmentRetries[seg.seq] = segRetryCount + 1;
-          queue.push(seg);
+          pendingSegs.push(seg);
           console.warn(`[ServiceWorker] Requeue segment ${seg.seq} (attempt ${segRetryCount + 1}/${task.maxRetries}):`, result.reason?.message || result.reason);
         } else {
           task.retryCount++;
@@ -321,6 +329,23 @@ async function runDownload(task, settings) {
         }
       }
     }
+
+    // 【关键修复】每批下载完成后同步进度到 StorageUtils，让 UI 能看到更新
+    await StorageUtils.updateTask(task.id, {
+      downloadedSegments: task.downloadedSegments,
+      downloadedBytes: task.downloadedBytes,
+      progress: task.progress,
+      speed: task.speed,
+      status: task.status
+    });
+
+    // 广播进度更新到所有标签页
+    broadcastToTabs({ type: 'TASK_UPDATE', payload: { ...task } });
+  }
+
+  // 退出循环时，把剩余的 pendingWrites 也持久化
+  if (Object.keys(pendingWrites).length > 0) {
+    await IDBStorage.putSegments(task.id, pendingWrites);
   }
 
   if (task.status !== 'paused') {
@@ -329,7 +354,7 @@ async function runDownload(task, settings) {
     await onTaskComplete(task.id, task, results);
   }
 
-  // 如果是队列管理模式，通知队列可以启动下一个任务
+  // 队列模式下通知队列可以启动下一个任务
   if (task._queueManaged) {
     TaskQueue.notifyDone();
   }
@@ -386,10 +411,6 @@ async function onTaskComplete(taskId, task, results) {
     }
   }
 
-  // 队列模式下通知队列可以启动下一个任务
-  if (task._queueManaged) {
-    TaskQueue.notifyDone();
-  }
 }
 
 async function onTaskError(taskId, task, err) {
@@ -410,14 +431,44 @@ async function onTaskError(taskId, task, err) {
   }
 }
 
-function pauseDownload(taskId) {
+// ========== 合并阶段处理（content script 触发）==========
+
+async function onMergeProgress(payload) {
+  const { taskId, phase, percent } = payload;
+  // 可选：将合并进度广播到 UI（目前合并在 content script 端完成，暂不写回 storage）
+  broadcastToTabs({ type: 'TASK_UPDATE', payload: { id: taskId, mergeProgress: percent, mergePhase: phase } });
+}
+
+async function onMergeComplete(payload) {
+  const { taskId } = payload;
+  // 清理 IndexedDB 中的分片数据
+  await IDBStorage.deleteSegments(taskId);
+  // 从 activeTasks 中移除
+  activeTasks.delete(taskId);
+  showNotification('合并完成', '文件已保存', '点击查看');
+  broadcastToTabs({ type: 'TASK_UPDATE', payload: { id: taskId, status: 'merged' } });
+}
+
+async function onMergeError(payload) {
+  const { taskId, error } = payload;
+  showNotification('合并失败', 'task: ' + taskId, error);
+  broadcastToTabs({ type: 'TASK_ERROR', payload: { taskId, error: '合并失败: ' + error } });
+}
+
+async function pauseDownload(taskId) {
   const task = activeTasks.get(taskId);
   if (task && task.abortController) {
     task.abortController.abort();
   }
   task.status = 'paused';
-  // 暂停时也要持久化 segmentData，确保下次恢复时数据不丢失
-  StorageUtils.updateTask(taskId, { status: 'paused', segmentData: task.segmentData });
+  // 【关键修复】必须 await 写入 IDB，确保数据持久化完成后再返回
+  // 否则 service worker 被终止时数据会丢失
+  await IDBStorage.putSegments(taskId, task.segmentData);
+  await StorageUtils.updateTask(taskId, {
+    status: 'paused',
+    downloadedSegments: task.downloadedSegments,
+    progress: task.progress
+  });
   // 队列模式下暂停也需要释放槽位
   if (task._queueManaged) TaskQueue.notifyDone();
   return { success: true };
@@ -430,7 +481,8 @@ async function resumeDownload(taskId) {
 
   const settings = await StorageUtils.getSettings();
   task.status = 'running';
-  task.segmentData = task.segmentData || {};
+  // 优先从 IndexedDB 恢复分片数据（chrome.storage.local 不再存 ArrayBuffer）
+  task.segmentData = await IDBStorage.getSegments(taskId) || {};
   task.downloadedSegments = task.downloadedSegments || 0;
   task.downloadedBytes = task.downloadedBytes || 0;
   task.abortController = null;

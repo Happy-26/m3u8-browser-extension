@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.0.4] - 2026-04-10
+
+### Fixed
+- **【严重】下载进度永远为 0**：`runDownload` 中 `StorageUtils.updateTask()` 从未被调用，进度只存在内存中，UI 轮询读取 storage 永远看不到进度。修复：每批分片下载完成后显式调用 `updateTask()` + `broadcastToTabs(TASK_UPDATE)` 推送进度
+- **【严重】暂停后数据丢失 / 电脑重启**：① `pauseDownload` 中 `IDBStorage.putSegments()` 未 await，service worker 被终止时本批数据丢失；② IDB 写入改为每 20 个分片批量写一次，减少 IDB 事务数量；③ `putSegments` 改为先读后合并（`{ ...existing, ...newSegments }`），避免覆盖旧分片
+- **【严重】crypto-utils.js 无浏览器全局导出**：动态加载后 `window.CryptoUtils === undefined`，合并时解密模块不存在。修复：添加 `window.CryptoUtils` 和 `self.CryptoUtils` 导出
+- **【严重】m3u8-parser.js 漏解析 IV 属性**：AES-128 解密时 `IV=null` 导致输出乱码或崩溃。修复：`_parseEncryption` 补充 `IV: attrs['IV']`
+- **popup START_DOWNLOAD 静默失败**：消息盲目发给所有标签页 content script，service worker 未激活时全部静默吞异常。修复：popup 直接用 `chrome.runtime.sendMessage` 发给 service worker，同时修复 payload 字段结构
+- **TaskQueue._runTask 死代码**：`task._onDone` 设置了但从未被调用，已删除
+
+### Added
+- `service-worker.js` 新增 `MERGE_PROGRESS` / `MERGE_COMPLETE` / `MERGE_ERROR` 消息处理（content script 合并阶段回调）
+- `content-script.js` MERGE_AND_DOWNLOAD 增加完整 try/catch、合并进度回调、完成/失败通知
+
+### Changed
+- 新增 `lib/idb-utils.js`：IndexedDB 分片二进制存储模块
+- `service-worker.js`：`runDownload` 中每批分片下载完成后持久化到 IndexedDB；批量写入优化（每 20 个分片一次事务）；`pauseDownload` 改为 async + await；`resumeDownload` 从 IndexedDB 恢复
+
 ## [1.0.3] - 2026-04-10
 
 ### Fixed
