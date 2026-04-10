@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>设置 - M3U8 Stream Catcher</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+  <style>
+    body { background: var(--bg); }
+
+    .settings-container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 32px 24px;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+    }
+
+    .page-title {
+      font-size: 22px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .settings-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .section-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* 设置行 */
+    .setting-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+      gap: 24px;
+    }
+
+    .setting-row:last-child { border-bottom: none; }
+
+    .setting-label { flex: 1; padding-top: 2px; }
+    .setting-label-title { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 3px; }
+    .setting-label-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+    .setting-control { flex-shrink: 0; }
+
+    /* 阈值可视化 */
+    .threshold-visual {
+      background: var(--bg);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      margin-bottom: 16px;
+      width: 100%;
+    }
+
+    .threshold-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .threshold-header-title {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .threshold-bar-wrap {
+      margin-bottom: 6px;
+    }
+
+    .threshold-bar {
+      display: flex;
+      height: 28px;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    .bar-memory {
+      background: linear-gradient(90deg, #43A047, #66BB6A);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: white;
+      font-weight: 600;
+      transition: width 0.4s ease;
+    }
+
+    .bar-stream {
+      background: linear-gradient(90deg, #FB8C00, #FF7043);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: white;
+      font-weight: 600;
+      transition: width 0.4s ease;
+    }
+
+    .threshold-legend {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      margin-top: 6px;
+    }
+
+    .legend-memory { color: #43A047; font-weight: 500; }
+    .legend-stream { color: #FB8C00; font-weight: 500; }
+
+    .preset-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .preset-btn {
+      padding: 5px 10px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: #fff;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .preset-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .preset-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+    /* 大文件说明卡片 */
+    .info-card {
+      background: linear-gradient(135deg, #fff8e1 0%, #fff 100%);
+      border: 1px solid #ffe082;
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin-bottom: 20px;
+    }
+
+    .info-card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #f57c00;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .info-card-body {
+      font-size: 13px;
+      color: #5d4037;
+      line-height: 1.8;
+    }
+
+    .info-card-body ul {
+      margin: 6px 0;
+      padding-left: 18px;
+    }
+
+    .info-card-body li { margin-bottom: 4px; }
+
+    .highlight { color: #e65100; font-weight: 600; }
+    .highlight-green { color: #2e7d32; font-weight: 600; }
+
+    /* 保存按钮 */
+    .save-bar {
+      position: sticky;
+      bottom: 0;
+      background: var(--bg-card);
+      border-top: 1px solid var(--border);
+      padding: 16px;
+      margin: 0 -24px -32px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.06);
+    }
+
+    .status-saved {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--success);
+      padding-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="settings-container">
+    <!-- 顶部 -->
+    <div class="page-header">
+      <div class="page-title">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        M3U8 Stream Catcher 设置
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="resetAll()">恢复默认</button>
+    </div>
+
+    <!-- 大文件说明 -->
+    <div class="info-card">
+      <div class="info-card-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+        </svg>
+        大文件合并策略说明
+      </div>
+      <div class="info-card-body">
+        <p>插件根据视频总大小自动选择最优合并方式，兼顾速度与稳定性：</p>
+        <ul>
+          <li>
+            <span class="highlight-green">&#9734; 小文件（不超过阈值）</span>：所有分片下载完成后，在内存中合并为 Blob，直接触发浏览器下载。
+            <br><span style="color:#888;font-size:12px;">&#10004; 速度快，体验好，下载完成即保存</span>
+          </li>
+          <li>
+            <span class="highlight">&#9889; 大文件（超过阈值）</span>：分片下载过程中分批写入临时 Blob 流，最后合并触发下载。
+            <br><span style="color:#888;font-size:12px;">&#10004; 避免浏览器内存溢出，稳定性强</span>
+          </li>
+        </ul>
+        <p>&#128276; <strong>默认值 200MB</strong>：普通短视频（5-30分钟）几乎都在此范围内；完整剧集/电影建议设为 500MB 或 0（全部流式合并）</p>
+      </div>
+    </div>
+
+    <!-- 大文件设置 -->
+    <div class="settings-section" id="section-large-file">
+      <div class="section-header">
+        <div class="section-icon" style="background:#fff3e0;color:#f57c00;">&#128190;</div>
+        <div>
+          <div class="section-title">大文件合并设置</div>
+          <div class="section-desc">设置多大算"大文件"，超过此值自动切换为流式合并</div>
+        </div>
+      </div>
+
+      <div class="threshold-visual">
+        <div class="threshold-header">
+          <span class="threshold-header-title">当前阈值</span>
+          <span class="range-value" id="threshold-display">200 MB</span>
+        </div>
+
+        <!-- 可视化进度条 -->
+        <div class="threshold-bar-wrap">
+          <div class="threshold-bar">
+            <div class="bar-memory" id="bar-memory" style="width:40%;">内存合并</div>
+            <div class="bar-stream" id="bar-stream" style="width:60%;">流式合并</div>
+          </div>
+        </div>
+        <div class="threshold-legend">
+          <span class="legend-memory">&#9734; 内存合并（快速）</span>
+          <span class="legend-stream">&#9889; 流式合并（省内存）</span>
+        </div>
+
+        <!-- 滑块 -->
+        <div style="margin-top:12px;display:flex;align-items:center;gap:12px;">
+          <input type="range" class="range-slider" id="threshold-slider"
+            min="0" max="7" value="4" style="flex:1;">
+          <div style="font-size:12px;color:var(--text-muted);min-width:80px;text-align:right;">
+            &#128283; 拖动调整
+          </div>
+        </div>
+
+        <!-- 预设按钮 -->
+        <div class="preset-grid" id="preset-grid">
+          <button class="preset-btn" data-mb="50">50 MB</button>
+          <button class="preset-btn" data-mb="100">100 MB</button>
+          <button class="preset-btn" data-mb="150">150 MB</button>
+          <button class="preset-btn active" data-mb="200">200 MB (默认)</button>
+          <button class="preset-btn" data-mb="300">300 MB</button>
+          <button class="preset-btn" data-mb="500">500 MB</button>
+          <button class="preset-btn" data-mb="1024">1 GB</button>
+          <button class="preset-btn" data-mb="0">不限制</button>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <div class="setting-label-title">大文件处理策略</div>
+          <div class="setting-label-desc">超过阈值的文件，使用哪种方式进行分块合并</div>
+        </div>
+        <div class="setting-control">
+          <select class="form-select" id="large-file-strategy" style="width:200px;">
+            <option value="stream">流式分块合并（推荐，已实现）</option>
+            <option value="ffmpeg">ffmpeg.wasm 合并（计划中）</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <div class="setting-label-title">推荐值说明</div>
+          <div class="setting-label-desc">
+            短视频（5-30分钟，100-500MB）: <strong>200-300 MB</strong> &nbsp;|&nbsp;
+            长视频（1小时+，500MB-2GB）: <strong>500 MB 或 0</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 下载设置 -->
+    <div class="settings-section">
+      <div class="section-header">
+        <div class="section-icon" style="background:#e3f2fd;color:#1976d2;">&#128259;</div>
+        <div>
+          <div class="section-title">下载设置</div>
+          <div class="section-desc">控制并发数、超时和重试策略</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <div class="setting-label-title">最大并发下载数</div>
+          <div class="setting-label-desc">同时下载的分片数量，值越大总速度越快，但服务器压力也越大</div>
+        </div>
+        <div class="setting-control" style="display:flex;align-items:center;gap:10px;">
+          <input type="range" class="range-slider" id="concurrency-slider"
+            min="1" max="12" value="6" style="width:100px;">
+          <span class="range-value" id="concurrency-display">6</span>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <div class="setting-label-title">最大重试次数</div>
+          <div class="setting-label-desc">分片下载失败时的自动重试次数</div>
+        </div>
+        <div class="setting-control">
+          <select class="form-select" id="max-retries" style="width:100px;">
+            <option value="0">0</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3" selected>3</option>
+            <option value="5">5</option>
+            <option value="10">10</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <div class="setting-label-title">连接超时</div>
+          <div class="setting-label-desc">单个分片下载超时时间（超时后自动重试）</div>
+        </div>
+        <div class="setting-control">
+          <select class="form-select" id="connect-timeout" style="width:120px;">
+            <option value="15000">15 秒</option>
+            <option value="30000" selected>30 秒</option>
+            <option value="60000">60 秒</option>
+            <option value="120000">120 秒</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 自动捕获设置 -->
+    <div class="settings-section">
+      <div class="section-header">
+        <div class="section-icon" style="background:#f3e5f5;color:#7b1fa2;">&#128640;</div>
+        <div>
+          <div class="section-title">自动捕获设置</div>
+          <div class="section-desc">控制何时以及如何自动检测 M3U8 链接</div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <div class="setting-label-title">自动捕获 M3U8 链接</div>
+          <div class="setting-label-desc">访问网页时自动检测 DOM 和网络请求中的 M3U8 链接</div>
+        </div>
+        <div class="setting-control">
+          <label class="form-switch">
+            <input type="checkbox" id="auto-capture" checked>
+            <span class="form-switch-text"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <div class="setting-label-title">捕获后自动解析</div>
+          <div class="setting-label-desc">检测到链接后自动获取分片列表，无需手动操作</div>
+        </div>
+        <div class="setting-control">
+          <label class="form-switch">
+            <input type="checkbox" id="auto-parse" checked>
+            <span class="form-switch-text"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <div class="setting-label-title">自动选择最高码率</div>
+          <div class="setting-label-desc">Master Playlist 包含多个清晰度时，自动选择最高画质</div>
+        </div>
+        <div class="setting-control">
+          <label class="form-switch">
+            <input type="checkbox" id="auto-quality" checked>
+            <span class="form-switch-text"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <div class="setting-label-title">显示桌面通知</div>
+          <div class="setting-label-desc">检测到新链接或下载完成时显示系统通知</div>
+        </div>
+        <div class="setting-control">
+          <label class="form-switch">
+            <input type="checkbox" id="show-notifications" checked>
+            <span class="form-switch-text"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 保存栏 -->
+    <div class="save-bar">
+      <div id="saved-status"></div>
+      <button class="btn btn-primary" onclick="saveSettings()">
+        &#128190; 保存设置
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const PRESET_VALUES = [0, 50, 100, 150, 200, 300, 500, 1024];
+
+    function sendMessage(msg) {
+      return new Promise(resolve => {
+        chrome.runtime.sendMessage(msg, r => resolve(r || {}));
+      });
+    }
+
+    async function loadSettings() {
+      const settings = await sendMessage({ type: 'GET_SETTINGS' });
+
+      // 阈值
+      const thresholdMB = Math.round((settings.largeFileThreshold || 200 * 1024 * 1024) / (1024 * 1024));
+      const idx = PRESET_VALUES.indexOf(thresholdMB);
+      const sliderIdx = idx === -1 ? 4 : idx;
+
+      document.getElementById('threshold-slider').value = sliderIdx;
+      updateThresholdUI(thresholdMB);
+
+      // 策略
+      document.getElementById('large-file-strategy').value = settings.largeFileStrategy || 'stream';
+
+      // 下载设置
+      document.getElementById('concurrency-slider').value = settings.maxConcurrency || 6;
+      document.getElementById('concurrency-display').textContent = settings.maxConcurrency || 6;
+      document.getElementById('max-retries').value = settings.maxRetries || 3;
+      document.getElementById('connect-timeout').value = settings.connectTimeout || 30000;
+
+      // 自动捕获
+      document.getElementById('auto-capture').checked = settings.autoCapture !== false;
+      document.getElementById('auto-parse').checked = settings.autoParse !== false;
+      document.getElementById('auto-quality').checked = settings.autoSelectHighestQuality !== false;
+      document.getElementById('show-notifications').checked = settings.showNotifications !== false;
+    }
+
+    function updateThresholdUI(mb) {
+      const display = document.getElementById('threshold-display');
+      const barMem = document.getElementById('bar-memory');
+      const barStream = document.getElementById('bar-stream');
+
+      display.textContent = mb === 0 ? '不限制' : mb + ' MB';
+
+      const max = 500;
+      const memPct = mb === 0 ? 5 : Math.min(100, Math.round((mb / max) * 100));
+      barMem.style.width = memPct + '%';
+      barStream.style.width = (100 - memPct) + '%';
+      barMem.textContent = memPct > 15 ? '内存合并' : '';
+      barStream.textContent = (100 - memPct) > 15 ? '流式合并' : '';
+
+      // 更新预设按钮
+      document.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.mb) === mb);
+      });
+    }
+
+    // 阈值滑块
+    document.getElementById('threshold-slider').addEventListener('input', function() {
+      const mb = PRESET_VALUES[parseInt(this.value)];
+      updateThresholdUI(mb);
+    });
+
+    // 预设按钮
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mb = parseInt(btn.dataset.mb);
+        const idx = PRESET_VALUES.indexOf(mb);
+        document.getElementById('threshold-slider').value = idx;
+        updateThresholdUI(mb);
+      });
+    });
+
+    // 并发数滑块
+    document.getElementById('concurrency-slider').addEventListener('input', function() {
+      document.getElementById('concurrency-display').textContent = this.value;
+    });
+
+    async function saveSettings() {
+      const slider = document.getElementById('threshold-slider');
+      const mb = PRESET_VALUES[parseInt(slider.value)];
+
+      const settings = {
+        largeFileThreshold: mb * 1024 * 1024,
+        largeFileStrategy: document.getElementById('large-file-strategy').value,
+        maxConcurrency: parseInt(document.getElementById('concurrency-slider').value),
+        maxRetries: parseInt(document.getElementById('max-retries').value),
+        connectTimeout: parseInt(document.getElementById('connect-timeout').value),
+        autoCapture: document.getElementById('auto-capture').checked,
+        autoParse: document.getElementById('auto-parse').checked,
+        autoSelectHighestQuality: document.getElementById('auto-quality').checked,
+        showNotifications: document.getElementById('show-notifications').checked
+      };
+
+      await sendMessage({ type: 'SAVE_SETTINGS', payload: { settings } });
+
+      const savedStatus = document.getElementById('saved-status');
+      savedStatus.innerHTML = '<div class="status-saved">&#10004; 设置已保存</div>';
+      setTimeout(() => { savedStatus.innerHTML = ''; }, 3000);
+    }
+
+    async function resetAll() {
+      if (confirm('确定将所有设置恢复为默认值？')) {
+        const defaults = {
+          largeFileThreshold: 200 * 1024 * 1024,
+          largeFileStrategy: 'stream',
+          maxConcurrency: 6,
+          maxRetries: 3,
+          connectTimeout: 30000,
+          autoCapture: true,
+          autoParse: true,
+          autoSelectHighestQuality: true,
+          showNotifications: true
+        };
+        await sendMessage({ type: 'SAVE_SETTINGS', payload: { settings: defaults } });
+        await loadSettings();
+        const savedStatus = document.getElementById('saved-status');
+        savedStatus.innerHTML = '<div class="status-saved">&#10004; 已恢复默认设置</div>';
+        setTimeout(() => { savedStatus.innerHTML = ''; }, 3000);
+      }
+    }
+
+    // 启动
+    loadSettings();
+  </script>
+</body>
+</html>

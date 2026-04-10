@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>M3U8 Stream Catcher - 下载管理器</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+  <style>
+    body { background: var(--bg); }
+
+    .manager-container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    .page-title {
+      font-size: 22px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .page-title-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--primary);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+    }
+
+    .tabs {
+      display: flex;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 24px;
+    }
+
+    .tab {
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+    .tab-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      background: var(--bg);
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .tab.active .tab-count { background: var(--primary-light); color: var(--primary); }
+
+    .task-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .task-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      box-shadow: var(--shadow);
+      transition: box-shadow 0.15s;
+    }
+
+    .task-card:hover { box-shadow: var(--shadow-lg); }
+
+    .task-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .task-info { flex: 1; min-width: 0; }
+
+    .task-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+      word-break: break-all;
+    }
+
+    .task-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .task-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .task-progress {
+      margin-bottom: 12px;
+    }
+
+    .task-progress-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+
+    .task-speed { color: var(--primary); font-weight: 600; }
+    .task-remaining { color: var(--text-muted); }
+
+    /* 大文件说明条 */
+    .merge-info-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--bg);
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+    }
+
+    .merge-info-bar .badge { font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div class="manager-container">
+    <!-- 顶部 -->
+    <div class="page-header">
+      <div class="page-title">
+        <div class="page-title-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="23 7 16 12 23 17 23 7"/>
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+          </svg>
+        </div>
+        M3U8 Stream Catcher
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="openSettings()">
+          &#9881; 设置
+        </button>
+        <button class="btn btn-primary" onclick="openPopup()">
+          &#43; 添加链接
+        </button>
+      </div>
+    </div>
+
+    <!-- 标签页 -->
+    <div class="tabs">
+      <div class="tab active" data-tab="downloads">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        下载任务
+        <span class="tab-count" id="tab-downloads-count">0</span>
+      </div>
+      <div class="tab" data-tab="captured">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        已捕获链接
+        <span class="tab-count" id="tab-captured-count">0</span>
+      </div>
+    </div>
+
+    <!-- 内容区 -->
+    <div id="tab-content">
+      <!-- 动态填充 -->
+    </div>
+  </div>
+
+  <script>
+    const tabContent = document.getElementById('tab-content');
+    let currentTab = 'downloads';
+
+    // Tab 切换
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentTab = tab.dataset.tab;
+        if (currentTab === 'downloads') renderDownloads();
+        else renderCaptured();
+      });
+    });
+
+    function sendMessage(msg) {
+      return new Promise(resolve => {
+        chrome.runtime.sendMessage(msg, r => resolve(r || {}));
+      });
+    }
+
+    // ========== 下载任务 ==========
+    async function renderDownloads() {
+      const tasks = await sendMessage({ type: 'GET_TASKS' });
+      document.getElementById('tab-downloads-count').textContent = tasks.length;
+
+      if (!tasks || tasks.length === 0) {
+        tabContent.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">&#128229;</div>
+            <div class="empty-state-title">暂无下载任务</div>
+            <div class="empty-state-desc">在弹出窗口中添加 M3U8 链接即可开始下载。也可以点击右上角"添加链接"直接输入。</div>
+            <button class="btn btn-primary mt-16" onclick="openPopup()">&#43; 添加 M3U8 链接</button>
+          </div>
+        `;
+        return;
+      }
+
+      const runningTasks = tasks.filter(t => t.status === 'running');
+      const completedTasks = tasks.filter(t => t.status === 'completed');
+      const errorTasks = tasks.filter(t => t.status === 'error');
+      const pausedTasks = tasks.filter(t => t.status === 'paused');
+
+      tabContent.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div style="display:flex;gap:16px;font-size:13px;color:var(--text-secondary);">
+            ${runningTasks.length ? '<span style="color:var(--primary);font-weight:600;">&#127938; ' + runningTasks.length + ' 下载中</span>' : ''}
+            ${pausedTasks.length ? '<span style="color:var(--warning);font-weight:600;">&#9208; ' + pausedTasks.length + ' 已暂停</span>' : ''}
+            ${completedTasks.length ? '<span style="color:var(--success);font-weight:600;">&#9989; ' + completedTasks.length + ' 已完成</span>' : ''}
+            ${errorTasks.length ? '<span style="color:var(--error);font-weight:600;">&#10060; ' + errorTasks.length + ' 失败</span>' : ''}
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="clearCompleted()">清空已完成</button>
+        </div>
+
+        <div class="task-list">
+          ${tasks.map(t => renderTaskCard(t)).join('')}
+        </div>
+      `;
+
+      tasks.forEach(t => {
+        const pauseBtn = document.getElementById('pause-' + t.id);
+        const resumeBtn = document.getElementById('resume-' + t.id);
+        const delBtn = document.getElementById('del-task-' + t.id);
+        if (pauseBtn) pauseBtn.addEventListener('click', () => pauseTask(t.id));
+        if (resumeBtn) resumeBtn.addEventListener('click', () => resumeTask(t.id));
+        if (delBtn) delBtn.addEventListener('click', () => deleteTask(t.id));
+      });
+    }
+
+    function renderTaskCard(task) {
+      const statusLabel = { pending: '等待中', running: '下载中', paused: '已暂停', completed: '已完成', error: '下载失败' };
+      const statusClass = task.status;
+
+      // 判断使用哪种合并方式
+      const totalMB = (task.totalBytes || 0) / (1024 * 1024);
+      const useMemory = totalMB <= 200;
+      const mergeInfo = task.status === 'completed'
+        ? '<div class="merge-info-bar"><span class="badge ' + (useMemory ? 'badge-success' : 'badge-warning') + '">' + (useMemory ? '&#9734; 内存合并' : '&#9889; 流式合并') + '</span><span>已保存到本地</span></div>'
+        : (task.totalBytes ? '<div class="merge-info-bar"><span class="badge badge-muted">&#128190; 预计: ' + formatBytes(task.totalBytes) + '</span><span>完成后' + (useMemory ? '内存合并' : '流式合并') + '</span></div>' : '');
+
+      return `
+        <div class="task-card">
+          <div class="task-header">
+            <div class="task-info">
+              <div class="task-name">${escapeHtml(task.name)}</div>
+              <div class="task-meta">
+                <span class="status-dot ${statusClass}"></span>
+                <span>${statusLabel[task.status] || task.status}</span>
+                ${task.totalSegments ? '<span>' + task.downloadedSegments + '/' + task.totalSegments + ' 分片</span>' : ''}
+                ${task.totalBytes ? '<span>' + formatBytes(task.totalBytes) + '</span>' : ''}
+                ${task.speed ? '<span style="color:var(--primary);">' + formatBytes(task.speed) + '/s</span>' : ''}
+              </div>
+            </div>
+            <div class="task-actions">
+              ${task.status === 'running' ? '<button class="btn btn-sm btn-secondary" id="pause-' + task.id + '">暂停</button>' : ''}
+              ${task.status === 'paused' ? '<button class="btn btn-sm btn-primary" id="resume-' + task.id + '">继续</button>' : ''}
+              <button class="btn btn-sm btn-danger" id="del-task-' + task.id + '">删除</button>
+            </div>
+          </div>
+          ${mergeInfo}
+          ${(task.status === 'running' || task.status === 'paused') ? `
+            <div class="task-progress">
+              <div class="task-progress-info">
+                <span>${task.progress}%</span>
+                <span class="task-remaining">剩余 ${formatTime(task.remainingTime)}</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-bar-fill ${task.status === 'paused' ? 'warning' : ''}" style="width:${task.progress}%"></div>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    async function pauseTask(id) {
+      await sendMessage({ type: 'PAUSE_DOWNLOAD', payload: { taskId: id } });
+      renderDownloads();
+    }
+
+    async function resumeTask(id) {
+      await sendMessage({ type: 'RESUME_DOWNLOAD', payload: { taskId: id } });
+      renderDownloads();
+    }
+
+    async function deleteTask(id) {
+      await sendMessage({ type: 'DELETE_TASK', payload: { taskId: id } });
+      renderDownloads();
+    }
+
+    async function clearCompleted() {
+      if (confirm('确定清空所有已完成的任务？')) {
+        await sendMessage({ type: 'CLEAR_COMPLETED_TASKS' });
+        renderDownloads();
+      }
+    }
+
+    // ========== 已捕获链接 ==========
+    async function renderCaptured() {
+      const urls = await sendMessage({ type: 'GET_CAPTURED_URLS' });
+      document.getElementById('tab-captured-count').textContent = urls.length;
+
+      if (!urls || urls.length === 0) {
+        tabContent.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">&#128269;</div>
+            <div class="empty-state-title">暂无捕获的链接</div>
+            <div class="empty-state-desc">访问包含 M3U8 视频的网页，插件将自动检测并列出</div>
+          </div>
+        `;
+        return;
+      }
+
+      tabContent.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div style="font-size:13px;color:var(--text-secondary);">共 ${urls.length} 条链接</div>
+          <button class="btn btn-secondary btn-sm" onclick="clearAll()">清空全部</button>
+        </div>
+        <div class="card">
+          <div class="list">
+            ${urls.map(u => `
+              <div class="list-item">
+                <div class="list-item-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2">
+                    <polygon points="23 7 16 12 23 17 23 7"/>
+                    <rect x="1" y="5" width="15" height="14" rx="2"/>
+                  </svg>
+                </div>
+                <div class="list-item-content">
+                  <div class="list-item-title">${escapeHtml(getFileName(u.url))}</div>
+                  <div class="list-item-subtitle">${escapeHtml(u.pageDomain || u.url)}</div>
+                </div>
+                <span class="badge badge-${getStatusClass(u.status)}" style="margin-right:8px;">${getStatusLabel(u.status)}</span>
+                <button class="btn-icon" onclick="delUrl('${escapeHtml(u.url)}')" title="删除">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                  </svg>
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    async function delUrl(url) {
+      await sendMessage({ type: 'DELETE_CAPTURED_URL', payload: { url } });
+      renderCaptured();
+    }
+
+    async function clearAll() {
+      if (confirm('确定清空所有捕获的链接？')) {
+        await sendMessage({ type: 'CLEAR_CAPTURED_URLS' });
+        renderCaptured();
+      }
+    }
+
+    // ========== 工具 ==========
+    function openSettings() {
+      chrome.runtime.sendMessage({ type: 'OPEN_SETTINGS' });
+    }
+
+    function openPopup() {
+      chrome.action.openPopup().catch(() => {
+        chrome.tabs.create({ url: 'chrome://extensions/?toolbar' });
+      });
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function getFileName(url) {
+      try { return new URL(url).pathname.split('/').pop() || 'video'; }
+      catch { return 'video'; }
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let i = 0, size = bytes;
+      while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+      return size.toFixed(1) + ' ' + units[i];
+    }
+
+    function formatTime(seconds) {
+      if (!seconds || seconds < 0) return '--:--';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = Math.floor(seconds % 60);
+      if (h > 0) return h + 'h ' + m + 'm';
+      return m + 'm ' + s + 's';
+    }
+
+    function getStatusClass(status) {
+      return { pending: 'muted', parsed: 'primary', downloading: 'warning', completed: 'success', error: 'error' }[status] || 'muted';
+    }
+
+    function getStatusLabel(status) {
+      return { pending: '待解析', parsed: '已解析', downloading: '下载中', completed: '已完成', error: '失败' }[status] || status;
+    }
+
+    // 启动
+    renderDownloads();
+    setInterval(renderDownloads, 3000); // 定期刷新下载状态
+  </script>
+</body>
+</html>
