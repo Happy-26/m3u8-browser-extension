@@ -28,6 +28,12 @@ async function handleMessage(message, sender) {
     case 'PARSE_M3U8':
       return await parseM3U8(message.payload.url);
 
+    case 'PARSE_MASTER_PLAYLIST':
+      return await parseMasterPlaylist(message.payload.url);
+
+    case 'SELECT_VARIANT':
+      return await parseM3U8(message.payload.variantUrl);
+
     case 'START_DOWNLOAD':
       return await startDownload(message.payload);
 
@@ -131,6 +137,18 @@ async function parseM3U8(url) {
     };
   } catch (err) {
     await StorageUtils.updateCapturedUrl(url, { status: 'error', error: err.message });
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * 解析 Master Playlist，返回所有变体流供用户选择
+ */
+async function parseMasterPlaylist(url) {
+  try {
+    const result = await M3U8Parser.parseMasterPlaylist(url);
+    return { success: true, data: result };
+  } catch (err) {
     return { success: false, error: err.message };
   }
 }

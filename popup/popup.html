@@ -352,6 +352,56 @@
       align-items: center;
       gap: 4px;
     }
+
+    /* 清晰度选择器 */
+    .quality-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 8px;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    .quality-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s;
+      font-size: 12px;
+    }
+
+    .quality-option:hover {
+      border-color: var(--primary);
+      background: var(--primary-light);
+    }
+
+    .quality-option.active {
+      border-color: var(--primary);
+      background: color-mix(in srgb, var(--primary) 10%, transparent);
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    .quality-option-label {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .quality-option-badge {
+      font-size: 10px;
+      background: var(--primary);
+      color: white;
+      padding: 1px 6px;
+      border-radius: 10px;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>

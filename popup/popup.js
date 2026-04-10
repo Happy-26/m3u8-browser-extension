@@ -204,53 +204,115 @@
     const item = capturedUrls.find(u => u.url === url);
     if (!item || !modalDetailBody) return;
 
-    let bodyHtml = '';
+    // 详情卡始终显示基本信息
+    let bodyHtml = `
+      <div class="video-info">
+        <div class="video-info-name">${escapeHtml(getFileName(item.url))}</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">M3U8 链接</label>
+        <div class="form-hint text-mono truncate" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>
+      </div>
+    `;
 
-    if (item.status === 'parsed' && item.segments) {
-      const totalSize = estimateSize(item);
-      bodyHtml = `
-        <div class="video-info">
-          <div class="video-info-name">${escapeHtml(getFileName(item.url))}</div>
-          <div class="video-info-meta">
-            <span>&#127909; ${item.totalSegments} 个分片</span>
-            <span>&#9201; ${formatDuration(item.totalDuration || 0)}</span>
-            <span>&#128190; ${formatBytes(totalSize)}</span>
-          </div>
-        </div>
-        <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">分辨率</label>
-              <div class="form-hint">${item.resolution || '未检测到'}</div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">分片数量</label>
-              <div class="form-hint">${item.totalSegments} 个</div>
-            </div>
-          </div>
-        <div class="form-group">
-          <label class="form-label">M3U8 链接</label>
-          <div class="form-hint text-mono truncate" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>
-        </div>
-        ${item.encryption ? '<div class="form-group"><label class="form-label">&#128274; 加密方式</label><div class="badge badge-warning">AES-128</div></div>' : '<div class="form-group"><label class="form-label">&#128275; 加密方式</label><div class="badge badge-success">无加密</div></div>'}
-      `;
-    } else if (item.status === 'error') {
-      bodyHtml = `
+    if (item.status === 'error') {
+      bodyHtml += `
         <div class="form-group">
           <div class="badge badge-error">解析失败</div>
           <div class="form-hint mt-8">${escapeHtml(item.error || '未知错误')}</div>
         </div>
       `;
-    } else {
-      bodyHtml = `
-        <div class="form-group">
-          <div class="badge badge-muted">待解析</div>
-          <div class="form-hint mt-8">点击"开始下载"将先解析再下载</div>
+      modalDetailBody.innerHTML = bodyHtml;
+      modalDetail.classList.add('active');
+      return;
+    }
+
+    if (item.status === 'parsed' && item.segments) {
+      const totalSize = estimateSize(item);
+      bodyHtml += `
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">分辨率</label>
+            <div class="form-hint">${item.resolution || '未检测到'}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">分片数量</label>
+            <div class="form-hint">${item.totalSegments} 个</div>
+          </div>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">&#9201; 时长</label>
+            <div class="form-hint">${formatDuration(item.totalDuration || 0)}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">&#128190; 估算大小</label>
+            <div class="form-hint">${formatBytes(totalSize)}</div>
+          </div>
+        </div>
+        ${item.encryption ? '<div class="form-group"><label class="form-label">&#128274; 加密</label><div class="badge badge-warning">AES-128</div></div>' : '<div class="form-group"><label class="form-label">&#128275; 加密</label><div class="badge badge-success">无加密</div></div>'}
+        <div id=\"quality-selector-container\"></div>
       `;
+    } else if (item.status === 'pending') {
+      // 先尝试获取 Master Playlist 变体流列表
+      try {
+        const res = await sendMessage({ type: 'PARSE_MASTER_PLAYLIST', payload: { url: item.url } });
+        if (res.success && res.data?.variantStreams?.length > 1) {
+          bodyHtml += buildQualitySelectorHtml(res.data.variantStreams, item.url);
+        } else {
+          bodyHtml += `<div class=\"form-group\"><div class=\"badge badge-muted\">待解析</div><div class=\"form-hint mt-8\">点击"开始下载"将先解析再下载</div></div>`;
+        }
+      } catch {
+        bodyHtml += `<div class=\"form-group\"><div class=\"badge badge-muted\">待解析</div><div class=\"form-hint mt-8\">点击"开始下载"将先解析再下载</div></div>`;
+      }
+    } else {
+      bodyHtml += `<div class=\"form-group\"><div class=\"badge badge-muted\">待解析</div><div class=\"form-hint mt-8\">点击"开始下载"将先解析再下载</div></div>`;
     }
 
     modalDetailBody.innerHTML = bodyHtml;
     modalDetail.classList.add('active');
+
+    // 为清晰度选项绑定点击事件
+    document.querySelectorAll('.quality-option').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const variantUrl = btn.dataset.variantUrl;
+        const label = btn.dataset.label;
+        // 取消其他选中
+        document.querySelectorAll('.quality-option').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // 解析选中的清晰度
+        showToast('正在解析', label, 'info');
+        const res = await sendMessage({ type: 'SELECT_VARIANT', payload: { variantUrl } });
+        if (res.success) {
+          await StorageUtils.updateCapturedUrl(item.url, { status: 'parsed', resolution: label });
+          showToast('解析完成', label, 'success');
+          await loadCapturedUrls();
+        } else {
+          showToast('解析失败', res.error, 'error');
+        }
+      });
+    });
+  }
+
+  function buildQualitySelectorHtml(variantStreams, originalUrl) {
+    const options = variantStreams.map((v, i) => {
+      const isRecommended = i === 0;
+      return `
+        <div class="quality-option ${isRecommended ? 'active' : ''}"
+             data-variant-url="${escapeHtml(v.uri)}"
+             data-label="${escapeHtml(v.label)}">
+          <div class="quality-option-label">${escapeHtml(v.label)}</div>
+          ${isRecommended ? '<div class="quality-option-badge">推荐</div>' : ''}
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="form-group">
+        <label class="form-label">&#127918; 选择清晰度（${variantStreams.length} 个可选）</label>
+        <div class="quality-list">${options}</div>
+      </div>
+    `;
   }
 
   // 更新统计
