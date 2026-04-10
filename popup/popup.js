@@ -27,6 +27,7 @@
   // ========== Popup 主逻辑 ==========
   let capturedUrls = [];
   let selectedUrl = null;
+  let selectedUrls = new Set(); // 多选集合
 
   // 标记初始化状态
   let isInitialized = false;
@@ -72,6 +73,11 @@
     try {
       if (typeof StorageUtils === 'undefined') return;
       capturedUrls = await StorageUtils.getCapturedUrls();
+      // 清理已不存在的选中项
+      const validUrls = new Set(capturedUrls.map(u => u.url));
+      for (const url of selectedUrls) {
+        if (!validUrls.has(url)) selectedUrls.delete(url);
+      }
       renderUrlList();
       updateStats();
     } catch (err) {
@@ -91,32 +97,47 @@
     }
 
     emptyState.style.display = 'none';
-    const html = capturedUrls.map(item => {
+    const selectAllChecked = capturedUrls.length > 0 && capturedUrls.every(u => selectedUrls.has(u.url));
+    const html = `
+      <div class="url-list-header">
+        <label class="url-item" style="cursor:pointer;">
+          <input type="checkbox" id="select-all" ${selectAllChecked ? 'checked' : ''} style="margin-right:8px;accent-color:var(--primary);">
+          <span style="font-size:12px;color:var(--text-secondary);">全选</span>
+          ${selectedUrls.size > 0 ? `<span style="margin-left:auto;font-size:12px;color:var(--primary);font-weight:600;">已选 ${selectedUrls.size} 项</span>` : ''}
+        </label>
+      </div>
+    ` + capturedUrls.map(item => {
       const domain = getDomain(item.pageUrl);
       const segCount = item.totalSegments ? item.totalSegments + ' 个分片' : '';
       const duration = item.totalDuration ? formatDuration(item.totalDuration) : '';
       const meta = [segCount, duration].filter(Boolean).join(' · ');
+      const isSelected = selectedUrls.has(item.url);
 
       return `
-        <div class="url-item" data-url="${escapeHtml(item.url)}">
-          <div class="url-item-header">
-            <div class="url-item-status ${item.status || 'pending'}"></div>
-            <div class="url-item-title">${escapeHtml(getFileName(item.url))}</div>
-            <div class="url-item-actions">
-              <button class="btn-icon btn-sm" title="复制链接" data-action="copy" data-url="${escapeHtml(item.url)}">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
-              </button>
-              <button class="btn-icon btn-sm" title="删除" data-action="delete" data-url="${escapeHtml(item.url)}">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                </svg>
-              </button>
+        <div class="url-item ${isSelected ? 'selected' : ''}" data-url="${escapeHtml(item.url)}">
+          <label style="display:flex;align-items:center;cursor:pointer;flex:1;min-width:0;">
+            <input type="checkbox" class="url-select-checkbox" data-url="${escapeHtml(item.url)}" ${isSelected ? 'checked' : ''} style="margin-right:8px;accent-color:var(--primary);flex-shrink:0;">
+            <div style="flex:1;min-width:0;">
+              <div class="url-item-header">
+                <div class="url-item-status ${item.status || 'pending'}"></div>
+                <div class="url-item-title">${escapeHtml(getFileName(item.url))}</div>
+                <div class="url-item-actions">
+                  <button class="btn-icon btn-sm" title="复制链接" data-action="copy" data-url="${escapeHtml(item.url)}">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                  </button>
+                  <button class="btn-icon btn-sm" title="删除" data-action="delete" data-url="${escapeHtml(item.url)}">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="url-item-domain">${escapeHtml(item.pageDomain || item.url)}</div>
+              ${meta ? '<div class="url-item-meta"><span>' + meta + '</span></div>' : ''}
             </div>
-          </div>
-          <div class="url-item-domain">${escapeHtml(item.pageDomain || item.url)}</div>
-          ${meta ? '<div class="url-item-meta"><span>' + meta + '</span></div>' : ''}
+          </label>
         </div>
       `;
     }).join('');
@@ -126,10 +147,38 @@
     // 绑定列表项点击事件
     urlListEl.querySelectorAll('.url-item').forEach(el => {
       el.addEventListener('click', (e) => {
-        // 忽略按钮点击
-        if (e.target.closest('.url-item-actions')) return;
+        // 忽略复选框和按钮点击
+        if (e.target.closest('input[type="checkbox"]') || e.target.closest('.url-item-actions')) return;
         const url = el.dataset.url;
         showDetail(url);
+      });
+    });
+
+    // 全选复选框
+    const selectAll = document.getElementById('select-all');
+    if (selectAll) {
+      selectAll.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          capturedUrls.forEach(u => selectedUrls.add(u.url));
+        } else {
+          selectedUrls.clear();
+        }
+        renderUrlList();
+        updateStats();
+      });
+    }
+
+    // 单项复选框
+    urlListEl.querySelectorAll('.url-select-checkbox').forEach(cb => {
+      cb.addEventListener('change', (e) => {
+        const url = cb.dataset.url;
+        if (e.target.checked) {
+          selectedUrls.add(url);
+        } else {
+          selectedUrls.delete(url);
+        }
+        renderUrlList();
+        updateStats();
       });
     });
 
@@ -236,6 +285,43 @@
         }
       });
       console.log('[Popup] btn-scan bound');
+    }
+
+    // 解析选中（多选）
+    const btnParse = document.getElementById('btn-parse');
+    if (btnParse) {
+      btnParse.addEventListener('click', async () => {
+        const selected = capturedUrls.filter(u => selectedUrls.has(u.url));
+        if (selected.length === 0) {
+          showToast('请先选择要解析的链接', '勾选列表中的项目', 'warning');
+          return;
+        }
+        showToast('开始解析', `共 ${selected.length} 个链接`, 'success');
+        for (const item of selected) {
+          try {
+            await sendMessage({ type: 'PARSE_M3U8', payload: { url: item.url } });
+          } catch (e) {}
+        }
+        setTimeout(loadCapturedUrls, 2000);
+      });
+    }
+
+    // 下载选中（多选）
+    const btnDownload = document.getElementById('btn-download');
+    if (btnDownload) {
+      btnDownload.addEventListener('click', async () => {
+        const selected = capturedUrls.filter(u => selectedUrls.has(u.url) && (u.status === 'parsed' || u.status === 'downloading'));
+        if (selected.length === 0) {
+          showToast('请先选择已解析的链接', '勾选已解析状态的项目', 'warning');
+          return;
+        }
+        showToast('开始批量下载', `共 ${selected.length} 个任务`, 'success');
+        for (const item of selected) {
+          await downloadItem(item);
+        }
+        selectedUrls.clear();
+        await loadCapturedUrls();
+      });
     }
 
     // 手动添加 URL
