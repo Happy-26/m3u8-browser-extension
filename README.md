@@ -2,6 +2,8 @@
 
 Chrome / Edge 浏览器插件，自动捕获网页中的 M3U8 链接，一键解析并下载 HLS 视频流。
 
+**版本**: 1.0.3 | **Manifest**: V3
+
 ---
 
 ## 功能特性
@@ -10,11 +12,12 @@ Chrome / Edge 浏览器插件，自动捕获网页中的 M3U8 链接，一键解
 - **自动捕获**：访问网页时自动检测 DOM 和网络请求中的 M3U8 链接
 - **多策略捕获**：
   - DOM 扫描（`<script>`、`<video>`、`<a>`）
-  - 网络请求拦截
+  - 网络请求拦截（fetch / XHR Hook）
   - HLS.js / Video.js 播放器检测
-- **智能解析**：自动解析 M3U8 分片列表，处理 Master Playlist（多码率）
-- **AES-128 解密**：支持主流 HLS 加密视频
-- **并发下载**：多线程并发下载分片，自动重试
+  - MutationObserver 动态内容监控（懒加载页面）
+- **智能解析**：自动解析 M3U8 分片列表，处理 Master Playlist（多码率，自动选择最高画质）
+- **AES-128 解密**：支持主流 HLS 加密视频，含防盗链 Referer 支持
+- **并发下载**：多线程并发下载分片，失败自动重试（每个分片最多重试 3 次）
 
 ### 大文件处理策略（核心亮点）
 - **小文件（≤ 阈值）**：分片在内存中合并为 Blob，直接触发下载，速度快
@@ -23,8 +26,8 @@ Chrome / Edge 浏览器插件，自动捕获网页中的 M3U8 链接，一键解
 - **可视化进度条**：直观展示内存合并 vs 流式合并的分界
 
 ### UI 界面
-- **Popup 弹窗**：快速查看捕获列表，一键添加/下载
-- **下载管理器**：查看所有下载任务，暂停/继续/删除
+- **Popup 弹窗**：快速查看捕获列表，支持多选批量下载
+- **下载管理器**：查看所有下载任务，支持暂停/继续/删除/断点续传
 - **设置页面**：大文件阈值、并发数、自动捕获开关等完整配置
 
 ---
@@ -35,23 +38,26 @@ Chrome / Edge 浏览器插件，自动捕获网页中的 M3U8 链接，一键解
 m3u8-browser-extension/
 ├── manifest.json              # Manifest V3 配置
 ├── popup/
-│   └── popup.html              # 插件主入口弹窗
+│   ├── popup.html             # 插件主入口弹窗
+│   └── popup.js               # 弹窗逻辑（多选批量下载）
 ├── pages/
-│   ├── download-manager.html   # 下载管理页面
-│   └── settings.html           # 设置页面（含大文件阈值配置）
+│   ├── download-manager.html  # 下载管理页面
+│   ├── download-manager.js    # 下载管理器逻辑
+│   ├── settings.html          # 设置页面（含大文件阈值配置）
+│   └── settings.js            # 设置逻辑
 ├── background/
-│   └── service-worker.js       # 后台服务（任务调度、下载管理）
+│   └── service-worker.js      # 后台服务（任务调度、下载管理、断点续传）
 ├── content/
-│   └── content-script.js       # DOM扫描 + 播放器检测
+│   └── content-script.js      # DOM扫描 + 播放器检测 + 网络拦截
 ├── lib/
-│   ├── m3u8-parser.js          # M3U8 解析器
-│   ├── segment-downloader.js    # 并发分片下载器
-│   ├── merger.js                # 分片合并器（大文件阈值逻辑）
-│   ├── crypto-utils.js          # AES-128 解密
-│   └── storage-utils.js         # 配置和任务存储
+│   ├── m3u8-parser.js         # M3U8 解析器（支持 Master Playlist，含递归深度限制）
+│   ├── segment-downloader.js   # 并发分片下载器
+│   ├── merger.js              # 分片合并器（大文件阈值 + 密钥缓存）
+│   ├── crypto-utils.js        # AES-128 解密（含防盗链 Referer）
+│   └── storage-utils.js       # 配置和任务存储
 └── assets/
-    ├── styles.css              # 全局样式
-    └── icons/                  # 图标
+    ├── styles.css             # 全局样式
+    └── icons/                 # 图标
 ```
 
 ---
@@ -66,7 +72,7 @@ m3u8-browser-extension/
 ```
 Merger.decideStrategy(totalBytes, threshold):
   ├─ totalBytes <= threshold  →  'memory'  → mergeInMemory() → Blob URL 下载
-  └─ totalBytes > threshold  →  'stream'  → 分批 Blob 合并 → 触发下载
+  └─ totalBytes > threshold   →  'stream'  → 分批 Blob 合并 → 触发下载
 ```
 
 ### 预设值
@@ -135,8 +141,8 @@ web-ext build
 
 1. **安装插件** → 点击工具栏图标打开 Popup
 2. **访问视频网页** → 插件自动捕获 M3U8 链接
-3. **点击链接** → 查看视频详情（分辨率、分片数、估算大小）
-4. **点击下载** → 开始下载分片
+3. **勾选链接** → 可单选查看详情，也可多选批量操作
+4. **点击下载** → 开始下载分片，支持暂停/断点续传
 5. **下载完成** → 自动合并，触发浏览器下载保存为 MP4
 
 ---
@@ -145,27 +151,23 @@ web-ext build
 
 - **Manifest V3**（Chrome 扩展最新规范）
 - **原生 JavaScript**（无框架依赖，轻量高效）
-- **Web Crypto API**（AES-128 解密）
+- **Web Crypto API**（AES-128-CBC 解密）
 - **Streams API**（大文件流式合并）
 - **Blob API**（内存合并 + 分块合并）
 - **chrome.storage**（配置和任务持久化）
-- **chrome.webRequest**（网络请求拦截）
+- **Fetch API**（带防盗链 Referer）
 
 ---
 
-## 参考项目
+## 已知限制
 
-本插件参考了 [m3u8-downloader-android](https://github.com/example/m3u8-downloader-android)（Android Kotlin 实现），其核心逻辑已移植到浏览器环境：
-- `M3U8ParserService.kt` → `m3u8-parser.js`
-- `SegmentDownloadManager.kt` → `segment-downloader.js`
-- `EncryptionUtils.kt` → `crypto-utils.js`
-- `MergeManager.kt` → `merger.js`（新增大文件阈值策略）
-
----
-
-## 注意事项
-
-- 仅供学习研究使用，请尊重视频版权
-- 部分网站有防盗链机制，可能需要配置 Referer
+- 部分网站有防盗链机制（Referer / Cookie），可在设置中手动配置
 - 大文件下载可能受浏览器超时限制，建议调整超时时间
-- ffmpeg.wasm 合并功能为预留接口，需额外加载 ffmpeg.wasm
+- ffmpeg.wasm 合并功能为预留接口，需额外加载 ffmpeg.wasm（设置中可选）
+- Service Worker 在浏览器关闭时会被终止，下载进度通过 storage 持久化，支持断点续传
+
+---
+
+## 更新日志
+
+详见 [CHANGELOG.md](./CHANGELOG.md)
