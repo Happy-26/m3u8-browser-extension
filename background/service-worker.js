@@ -4,7 +4,8 @@
  */
 
 // 导入核心模块（通过 importScripts）
-importScripts('../lib/m3u8-parser.js', '../lib/crypto-utils.js', '../lib/segment-downloader.js', '../lib/storage-utils.js');
+importScripts('../lib/m3u8-parser.js', '../lib/crypto-utils.js', '../lib/storage-utils.js');
+// segment-downloader.js 未被 service-worker 直接调用（service-worker 自己实现了下载逻辑）
 
 // 内存中的任务队列（Service Worker 生命周期有限，需持久化存储）
 const activeTasks = new Map();
